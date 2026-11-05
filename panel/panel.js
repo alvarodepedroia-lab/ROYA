@@ -179,10 +179,14 @@ function renderDetail(c) {
   detail.replaceChildren(el('h2', {}, k.nombre || k.telefono || 'Sin nombre'));
   detail.append(el('p', { class: 'meta' }, [tel && '+' + tel, k.nombre_empresa, k.email].filter(Boolean).join(' · ')));
 
-  const wa = el('a', { class: 'btn', target: '_blank', rel: 'noopener', href: tel ? `https://wa.me/${tel}?text=${encodeURIComponent(GREETING)}` : '#' }, 'Abrir en WhatsApp');
+  const waLink = (txt) => (tel ? `https://wa.me/${tel}?text=${encodeURIComponent(txt)}` : '#');
+  const nombre = (k.nombre || '').trim().split(/s+/)[0];
+  const budgetText = `Hola${nombre ? ' ' + nombre : ''}, te escribo del equipo de Roya Manejo Integral. Te paso el presupuesto${r && r.numero_solicitud ? ' de tu solicitud ' + r.numero_solicitud : ''}:`;
+  const wa = el('a', { class: 'btn', target: '_blank', rel: 'noopener', href: waLink(budgetText) }, 'Enviar presupuesto');
+  const waHelp = el('a', { class: 'alt', target: '_blank', rel: 'noopener', href: waLink(GREETING) }, 'Continuar (el agente no pudo resolver)');
   const toggle = el('button', { class: 'alt', type: 'button' }, c.bot_activo ? 'Tomar atención humana (apaga el agente)' : 'Reactivar agente');
   toggle.onclick = () => setBot(c, !c.bot_activo);
-  detail.append(el('div', { class: 'actions' }, wa, toggle));
+  detail.append(el('div', { class: 'actions' }, wa, waHelp, toggle));
 
   if (r) {
     const box = el('div', { class: 'box' }, el('h3', {}, `Solicitud ${r.numero_solicitud || ''}`));
@@ -247,7 +251,7 @@ function renderWindow(messages) {
   info.className = 'window' + (open ? '' : ' closed');
   info.textContent = open
     ? `Podés responder desde acá durante ${Math.floor(left / 3600e3)} h ${Math.floor((left % 3600e3) / 60e3)} min más.`
-    : 'Pasaron más de 24 h desde el último mensaje del cliente: WhatsApp solo permite plantillas. Escribile con el botón "Abrir en WhatsApp".';
+    : 'Pasaron más de 24 h desde el último mensaje del cliente: WhatsApp solo permite plantillas. Escribile con el botón "Enviar presupuesto" o "Continuar".';
   send.disabled = !open;
 }
 
