@@ -139,11 +139,14 @@ async function openConversation(id) {
 async function loadThread(scrollToEnd) {
   const c = conversations.find((x) => x.id === activeId);
   if (!c) return;
-  const [msgs, ders] = await Promise.all([
+  const [msgs, ders, locs] = await Promise.all([
     db.from('mensajes')
       .select('id,direccion,emisor,tipo,contenido_texto,contenido_transcripto,estado_envio,created_at')
       .eq('conversacion_id', c.id).order('created_at', { ascending: true }).limit(800),
     db.from('derivaciones').select('id,motivo,estado,created_at').eq('conversacion_id', c.id).order('created_at', { ascending: true }),
+    c.clientes?.id
+      ? db.from('ubicaciones').select('google_maps_url,nombre,direccion,created_at').eq('cliente_id', c.clientes.id).order('created_at', { ascending: false }).limit(3)
+      : Promise.resolve({ data: [] }),
   ]);
   if (renderedId !== c.id) {
     renderDetail(c);
@@ -152,6 +155,21 @@ async function loadThread(scrollToEnd) {
   }
   renderThread(msgs.data || [], ders.data || [], scrollToEnd);
   renderWindow(msgs.data || []);
+  renderLocations(locs.data || []);
+}
+
+// Solo se aceptan enlaces de Google Maps con coordenadas, generados por el agente.
+const MAPS_URL = /^https:\/\/www\.google\.com\/maps\?q=-?\d{1,3}(\.\d+)?,-?\d{1,3}(\.\d+)?$/;
+
+function renderLocations(rows) {
+  const box = $('#locbox');
+  if (!box) return;
+  const valid = rows.filter((r) => MAPS_URL.test(r.google_maps_url || ''));
+  box.hidden = !valid.length;
+  box.replaceChildren(el('h3', {}, 'Ubicación enviada por el cliente'),
+    ...valid.map((r) => el('p', {},
+      el('a', { href: r.google_maps_url, target: '_blank', rel: 'noopener' }, 'Abrir en Google Maps'),
+      ` · ${fmt(r.created_at)}${r.nombre ? ' · ' + r.nombre : ''}${r.direccion ? ' · ' + r.direccion : ''}`)));
 }
 
 function renderDetail(c) {
@@ -174,6 +192,7 @@ function renderDetail(c) {
     detail.append(box);
   }
 
+  detail.append(el('div', { class: 'box', id: 'locbox', hidden: '' }));
   detail.append(el('div', { class: 'thread', id: 'thread' }), el('div', { class: 'window', id: 'window' }));
 
   const textarea = el('textarea', { id: 'reply-text', placeholder: 'Respuesta por WhatsApp', required: '' });
@@ -195,7 +214,8 @@ function renderThread(messages, derivations, scrollToEnd) {
     if (before.length) called.add(before[before.length - 1].id);
   }
   const items = [
-    ...messages.map((m) => ({ t: new Date(m.created_at), m })),
+    // "[Ubicación recibida]" es un aviso interno para que el agente siga; en el panel ya se ve el enlace del mapa.
+    ...messages.filter((m) => m.contenido_texto !== '[Ubicación recibida]').map((m) => ({ t: new Date(m.created_at), m })),
     ...derivations.map((d) => ({ t: new Date(d.created_at), d })),
   ].sort((a, b) => a.t - b.t);
 
@@ -204,7 +224,12 @@ function renderThread(messages, derivations, scrollToEnd) {
       return el('div', { class: 'notice' }, `Derivación a persona · ${d.estado === 'PENDIENTE' ? 'pendiente' : 'resuelta'}`,
         el('small', {}, `${fmt(d.created_at)}${d.motivo ? ' · ' + d.motivo : ''}`));
     }
-    const text = m.contenido_texto || (m.contenido_transcripto ? '🎤 ' + m.contenido_transcripto : `[${m.tipo}]`);
+    const raw = m.contenido_texto || (m.contenido_transcripto ? '🎤 ' + m.contenido_transcripto : `[${m.tipo}]`);
+    // Mensaje de ubicación del cliente: se muestra como enlace a Google Maps.
+    const loc = /^Ubicación: (\S+)/.exec(raw);
+    const text = loc && MAPS_URL.test(loc[1])
+      ? el('a', { href: loc[1], target: '_blank', rel: 'noopener' }, '📍 Ubicación enviada: abrir en Google Maps')
+      : raw;
     return el('div', { class: `msg ${m.emisor}${called.has(m.id) ? ' llamado' : ''}` }, text,
       el('small', {}, `${m.emisor} · ${fmt(m.created_at)}${m.estado_envio && !['enviado', 'recibido'].includes(m.estado_envio) ? ' · ' + m.estado_envio : ''}`));
   }));
